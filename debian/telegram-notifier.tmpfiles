@@ -1,0 +1,3 @@
+# Recreate the runtime directory on boot, for the socket.
+d /run/telegram-notifier 0755 telegram-notifier telegram-notifier -
+d /var/lib/telegram-notifier 0750 telegram-notifier telegram-notifier -

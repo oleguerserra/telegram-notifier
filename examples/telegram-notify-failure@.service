@@ -1,0 +1,11 @@
+# Generic OnFailure= handler. Install to /etc/systemd/system/ and reference it
+# from any unit as:  OnFailure=telegram-notify-failure@%n.service
+[Unit]
+Description=Report %i failing to Telegram
+
+[Service]
+Type=oneshot
+ExecStart=/usr/share/telegram-notifier/examples/notify-on-failure %i
+# The invoking user must be able to write the control socket.
+User=root
+# Environment=TELEGRAM_TARGET=ops

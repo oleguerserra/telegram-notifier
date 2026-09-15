@@ -1,0 +1,41 @@
+#!/bin/sh
+# postrm script for telegram-notifier
+set -e
+
+CONFIG_DIR=/etc/telegram-notifier
+STATE_DIR=/var/lib/telegram-notifier
+RUNTIME_DIR=/run/telegram-notifier
+SERVICE_USER=telegram-notifier
+CLIENT_GROUP=telegram-notify
+
+case "$1" in
+    purge)
+        # The queue can hold undelivered message bodies; purge means purge.
+        rm -rf "$STATE_DIR" "$RUNTIME_DIR"
+        rm -f "$CONFIG_DIR/bot-token"
+        rmdir --ignore-fail-on-non-empty "$CONFIG_DIR" 2>/dev/null || true
+
+        if getent passwd "$SERVICE_USER" >/dev/null; then
+            deluser --system "$SERVICE_USER" >/dev/null 2>&1 || true
+        fi
+        # Only remove the client group if no accounts still reference it;
+        # administrators may have added their own users to it.
+        if getent group "$CLIENT_GROUP" >/dev/null; then
+            if [ -z "$(getent group "$CLIENT_GROUP" | cut -d: -f4)" ]; then
+                delgroup --system "$CLIENT_GROUP" >/dev/null 2>&1 || true
+            fi
+        fi
+        ;;
+
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

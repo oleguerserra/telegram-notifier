@@ -1,0 +1,114 @@
+.TH TELEGRAM-NOTIFIERD 8 "2026-09-15" "telegram-notifier 0.1.0" "System Administration"
+.SH NAME
+telegram\-notifierd \- daemon that delivers queued notifications to Telegram
+.SH SYNOPSIS
+.B telegram\-notifierd
+.RB [ \-\-config
+.IR FILE ]
+.RB [ \-\-log\-level
+.IR LEVEL ]
+.RB [ \-\-check ]
+.SH DESCRIPTION
+.B telegram\-notifierd
+listens on a Unix domain socket and forwards the messages it receives to the
+Telegram Bot API. It is normally started by systemd as the
+.B telegram\-notifier
+service and is not meant to be run by hand, except with
+.B \-\-check
+to validate a configuration change.
+.PP
+Every accepted message is written to the on-disk queue under
+.I /var/lib/telegram\-notifier/queue
+.I before
+the client is told the message was queued, so an acknowledged message
+survives a crash, a restart or a reboot. Entries are written to a temporary
+file and renamed into place, so a partially written entry is never visible.
+.PP
+Delivery is attempted by a single worker, highest priority first and oldest
+first within a priority. Failures that a retry could fix (network errors,
+Telegram 5xx replies, rate limiting) are retried with exponential backoff; a
+.B 429
+reply is honoured for exactly the delay Telegram asks for. Failures a retry
+cannot fix (an invalid token, an unknown chat, malformed markup) are not
+retried. When a message is abandoned, either because it exhausted
+.B max_attempts
+or because the failure was permanent, it is moved to
+.I /var/lib/telegram\-notifier/failed
+with its last error recorded, rather than being discarded.
+.SH OPTIONS
+.TP
+.BR \-c ", " \-\-config " " \fIFILE\fR
+Configuration file to read. Default
+.IR /etc/telegram\-notifier/config.toml .
+.TP
+.B \-\-check
+Parse and validate the configuration, print a summary and exit without
+binding the socket. Run this before restarting the service after an edit.
+It checks that a bot token can be read, but does not contact Telegram, so a
+syntactically valid yet wrong token still passes; verify one with
+.I https://api.telegram.org/bot<TOKEN>/getMe
+instead.
+.TP
+.BR \-l ", " \-\-log\-level " " \fILEVEL\fR
+Override
+.B [service] log_level
+from the configuration file. The
+.B RUST_LOG
+environment variable, if set, takes precedence over both.
+.SH ACCESS CONTROL
+The control socket is created owned by the daemon's user and the group named
+in
+.BR "[service] socket_group" ,
+with mode
+.BR socket_mode .
+With the shipped defaults that is
+.BR telegram\-notify ,
+mode
+.BR 0660 :
+membership of that group is exactly what grants the right to send
+notifications. There is no other authentication, so treat group membership as
+the security boundary.
+.SH SIGNALS
+.TP
+.B SIGTERM ", " SIGINT
+Stop accepting new messages, finish the request in flight and exit. Anything
+still queued stays on disk and is retried on the next start.
+.SH FILES
+.TP
+.I /etc/telegram-notifier/config.toml
+Main configuration file. See
+.BR telegram\-notifier.toml (5).
+.TP
+.I /etc/telegram-notifier/bot-token
+Default location of the bot token, referenced by
+.BR bot_token_file .
+.TP
+.I /run/telegram-notifier/notifier.sock
+Control socket.
+.TP
+.I /var/lib/telegram-notifier/queue
+Pending messages, one JSON file each.
+.TP
+.I /var/lib/telegram-notifier/failed
+Abandoned messages, kept for inspection. Nothing removes these
+automatically.
+.SH DIAGNOSTICS
+Logs go to standard error, which systemd records in the journal:
+.PP
+.RS
+.EX
+journalctl \-u telegram\-notifier \-f
+.EE
+.RE
+.PP
+Queue depth and delivery counters are available through the client:
+.PP
+.RS
+.EX
+telegram\-notify \-\-status
+.EE
+.RE
+.SH SEE ALSO
+.BR telegram\-notify (1),
+.BR telegram\-notifier.toml (5),
+.BR systemctl (1)

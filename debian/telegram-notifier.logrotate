@@ -1,0 +1,14 @@
+# telegram-notifierd logs to stderr, which systemd captures into the journal,
+# so there is normally nothing to rotate here. This stanza only covers the
+# optional file log configured by redirecting the unit's StandardError.
+/var/log/telegram-notifier/*.log {
+    weekly
+    rotate 8
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su telegram-notifier telegram-notifier
+    create 0640 telegram-notifier telegram-notifier
+}

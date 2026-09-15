@@ -1,0 +1,23 @@
+#!/bin/sh
+# Report a failed systemd unit to Telegram.
+#
+# Wire it up with a drop-in on the unit you care about:
+#
+#   [Unit]
+#   OnFailure=telegram-notify-failure@%n.service
+#
+# See telegram-notify-failure@.service, installed next to this script.
+set -eu
+
+unit="${1:?usage: notify-on-failure <unit>}"
+host="$(hostname -f 2>/dev/null || hostname)"
+
+{
+    systemctl status --full --no-pager "$unit" 2>&1 | head -n 25
+} | telegram-notify \
+        --target "${TELEGRAM_TARGET:-default}" \
+        --priority high \
+        --title "$unit failed on $host" \
+        --source "onfailure" \
+        --stdin \
+        --quiet

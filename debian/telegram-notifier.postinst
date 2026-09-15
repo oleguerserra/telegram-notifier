@@ -1,0 +1,70 @@
+#!/bin/sh
+# postinst script for telegram-notifier
+set -e
+
+CONFIG_DIR=/etc/telegram-notifier
+CONFIG_FILE="$CONFIG_DIR/config.toml"
+TOKEN_FILE="$CONFIG_DIR/bot-token"
+STATE_DIR=/var/lib/telegram-notifier
+SERVICE_USER=telegram-notifier
+CLIENT_GROUP=telegram-notify
+
+case "$1" in
+    configure)
+        # Group whose members are allowed to send notifications.
+        if ! getent group "$CLIENT_GROUP" >/dev/null; then
+            addgroup --system "$CLIENT_GROUP"
+        fi
+
+        # Unprivileged account the daemon runs as.
+        if ! getent passwd "$SERVICE_USER" >/dev/null; then
+            adduser --system --group \
+                    --home "$STATE_DIR" --no-create-home \
+                    --gecos "Telegram notification relay" \
+                    "$SERVICE_USER"
+        fi
+        if ! id -nG "$SERVICE_USER" | tr ' ' '\n' | grep -qx "$CLIENT_GROUP"; then
+            adduser "$SERVICE_USER" "$CLIENT_GROUP"
+        fi
+
+        # The config may hold the bot token, so it must not be world-readable.
+        if [ -e "$CONFIG_FILE" ]; then
+            chown root:"$SERVICE_USER" "$CONFIG_FILE"
+            chmod 0640 "$CONFIG_FILE"
+        fi
+
+        # Placeholder token file, so a fresh install has something to edit.
+        if [ ! -e "$TOKEN_FILE" ]; then
+            touch "$TOKEN_FILE"
+            echo "# Replace this file's contents with the token from @BotFather" \
+                > "$TOKEN_FILE"
+        fi
+        chown root:"$SERVICE_USER" "$TOKEN_FILE"
+        chmod 0640 "$TOKEN_FILE"
+
+        mkdir -p "$STATE_DIR"
+        chown "$SERVICE_USER":"$SERVICE_USER" "$STATE_DIR"
+        chmod 0750 "$STATE_DIR"
+
+        if [ -z "$2" ]; then
+            # First install: the daemon will not start until it is configured,
+            # so point the administrator at what is left to do.
+            echo "telegram-notifier: edit $TOKEN_FILE and the [targets] section"
+            echo "telegram-notifier: of $CONFIG_FILE, then run:"
+            echo "telegram-notifier:   systemctl enable --now telegram-notifier"
+            echo "telegram-notifier: add users to the '$CLIENT_GROUP' group to let them send."
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

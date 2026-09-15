@@ -1,0 +1,57 @@
+[Unit]
+Description=Telegram notification relay
+Documentation=man:telegram-notifierd(8) man:telegram-notify(1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/bin/telegram-notifierd --config /etc/telegram-notifier/config.toml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=20s
+
+User=telegram-notifier
+Group=telegram-notifier
+# The daemon chowns its socket to this group. Holding the group as a
+# supplementary group is enough, so no capabilities are needed.
+SupplementaryGroups=telegram-notify
+
+# systemd creates and owns these: /run/... for the socket, /var/lib/... for
+# the persistent queue.
+RuntimeDirectory=telegram-notifier
+RuntimeDirectoryMode=0755
+StateDirectory=telegram-notifier
+StateDirectoryMode=0750
+
+# Queued entries contain message bodies, so keep them owner-readable only.
+UMask=0077
+
+# Hardening: the daemon reads its config, writes its queue, and speaks HTTPS.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

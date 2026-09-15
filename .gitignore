@@ -1,0 +1,10 @@
+/target
+/vendor
+/.cargo
+/debian/cargo
+/debian/telegram-notifier/
+/debian/.debhelper/
+/debian/*.substvars
+/debian/*.debhelper.log
+/debian/debhelper-build-stamp
+/debian/files

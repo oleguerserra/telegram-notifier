@@ -1,0 +1,61 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+
+# Keep cargo's scratch state inside debian/ so the source tree stays clean.
+export CARGO_HOME = $(CURDIR)/debian/cargo
+export CARGO_TARGET_DIR = $(CURDIR)/target
+
+CARGO_FLAGS = --release --locked
+
+# A vendored registry (see README, "Building the Debian package") lets the
+# build run with no network access, as an official Debian build requires.
+ifneq (,$(wildcard $(CURDIR)/vendor))
+CARGO_FLAGS += --offline
+export CARGO_NET_OFFLINE = true
+endif
+
+DESTDIR = debian/telegram-notifier
+
+%:
+	dh $@
+
+# This tree is built with cargo directly, not through a debhelper buildsystem.
+override_dh_auto_configure:
+
+override_dh_auto_build:
+	cargo build $(CARGO_FLAGS)
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	cargo test $(CARGO_FLAGS)
+endif
+
+override_dh_auto_install:
+	install -D -m 0755 target/release/telegram-notifierd $(DESTDIR)/usr/bin/telegram-notifierd
+	install -D -m 0755 target/release/telegram-notify    $(DESTDIR)/usr/bin/telegram-notify
+	install -D -m 0640 conf/config.toml                   $(DESTDIR)/etc/telegram-notifier/config.toml
+	install -D -m 0755 examples/notify-on-failure \
+	  $(DESTDIR)/usr/share/telegram-notifier/examples/notify-on-failure
+	install -D -m 0644 examples/telegram-notify-failure@.service \
+	  $(DESTDIR)/usr/share/telegram-notifier/examples/telegram-notify-failure@.service
+	install -D -m 0644 examples/logging-hook.sh \
+	  $(DESTDIR)/usr/share/telegram-notifier/examples/logging-hook.sh
+	install -D -m 0755 examples/send.py \
+	  $(DESTDIR)/usr/share/telegram-notifier/examples/send.py
+
+override_dh_auto_clean:
+	rm -rf target debian/cargo
+
+# The release profile strips already, so dh_dwz has no debug info to process.
+override_dh_dwz:
+
+# The service is useless until a bot token and a chat id are configured, so it
+# is neither enabled nor started automatically; postinst says what to do next.
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
+
+# dh_fixperms would make the configuration world-readable, and it may hold the
+# bot token inline.
+override_dh_fixperms:
+	dh_fixperms --exclude etc/telegram-notifier/config.toml

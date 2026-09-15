@@ -1,0 +1,136 @@
+.TH TELEGRAM-NOTIFY 1 "2026-09-15" "telegram-notifier 0.1.0" "User Commands"
+.SH NAME
+telegram\-notify \- send a notification to Telegram
+.SH SYNOPSIS
+.B telegram\-notify
+.RI [ OPTIONS ]
+.RI [ TEXT .\|.\|.]
+.br
+.B telegram\-notify
+.B \-\-ping
+|
+.B \-\-status
+.SH DESCRIPTION
+.B telegram\-notify
+hands a message to the
+.BR telegram\-notifierd (8)
+daemon, which queues it and delivers it to Telegram. The command returns as
+soon as the daemon has written the message to its persistent queue, not when
+Telegram has accepted it; delivery, retries and rate limiting happen in the
+background.
+.PP
+If no
+.I TEXT
+operand is given, the message body is read from standard input.
+.PP
+Sending requires write access to the daemon's control socket, which is owned
+by the
+.B telegram\-notify
+group. Add users to that group with
+.BR adduser (8).
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-target " " \fINAME\fR
+Send to the named target from the daemon's configuration instead of the
+configured default. Use
+.B \-\-status
+to list the available targets.
+.TP
+.BR \-T ", " \-\-title " " \fITEXT\fR
+Heading placed above the body. It is emphasised and escaped according to the
+selected format.
+.TP
+.BR \-p ", " \-\-priority " " \fILEVEL\fR
+One of
+.BR low ", " normal " (default) or " high .
+Higher priorities leave the queue first, which matters when a backlog has
+built up.
+.TP
+.BR \-f ", " \-\-format " " \fIFORMAT\fR
+Body markup:
+.BR plain ", " markdown ", " markdownv2 " or " html .
+Defaults to the target's configured format. With anything other than
+.BR plain ,
+escaping reserved characters is the caller's responsibility; Telegram rejects
+malformed markup and the message is then moved to the failed queue.
+.TP
+.BR \-s ", " \-\-silent
+Deliver without a notification sound.
+.TP
+.BR \-S ", " \-\-source " " \fINAME\fR
+Label recorded in the daemon's log for this message. Defaults to the systemd
+unit or the invoking user.
+.TP
+.B \-\-stdin
+Read the body from standard input even when
+.I TEXT
+operands are present; the operands then become the first line.
+.TP
+.B \-\-socket " " \fIPATH\fR
+Control socket to connect to. Defaults to
+.I /run/telegram\-notifier/notifier.sock
+and may also be set with
+.BR TELEGRAM_NOTIFIER_SOCKET .
+.TP
+.B \-\-timeout " " \fISECONDS\fR
+How long to wait for the daemon to answer. Default 10.
+.TP
+.B \-\-ping
+Check that the daemon is reachable and exit.
+.TP
+.B \-\-status
+Print queue statistics and the configured targets as JSON, then exit.
+.TP
+.BR \-q ", " \-\-quiet
+Do not print the queued message id on success.
+.TP
+.BR \-h ", " \-\-help ", " \-V ", " \-\-version
+Show help or version information.
+.SH EXIT STATUS
+.TP
+.B 0
+The message was queued, or the ping or status request succeeded.
+.TP
+.B 1
+The daemon rejected the request, for instance because the target is unknown
+or the queue is full.
+.TP
+.B 2
+Usage error, or the daemon could not be reached.
+.SH ENVIRONMENT
+.TP
+.B TELEGRAM_NOTIFIER_SOCKET
+Overrides the default control socket path.
+.SH EXAMPLES
+.PP
+Send a one line message to the default target:
+.PP
+.RS
+.EX
+telegram\-notify "Backup finished"
+.EE
+.RE
+.PP
+Send the tail of a log to the ops chat, as an urgent message:
+.PP
+.RS
+.EX
+journalctl \-u nginx \-n 20 | telegram\-notify \-t ops \-p high \\
+    \-\-title "nginx restarted" \-\-stdin
+.EE
+.RE
+.PP
+Use it as a cron failure handler, without letting it break the job:
+.PP
+.RS
+.EX
+0 3 * * * /usr/local/bin/backup || telegram\-notify \-p high "backup failed"
+.EE
+.RE
+.SH FILES
+.TP
+.I /run/telegram-notifier/notifier.sock
+Default control socket.
+.SH SEE ALSO
+.BR telegram\-notifierd (8),
+.BR telegram\-notifier.toml (5)

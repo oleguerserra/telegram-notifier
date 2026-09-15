@@ -1,0 +1,200 @@
+.TH TELEGRAM-NOTIFIER.TOML 5 "2026-09-15" "telegram-notifier 0.1.0" "File Formats"
+.SH NAME
+telegram\-notifier.toml \- configuration file for telegram\-notifierd
+.SH DESCRIPTION
+.I /etc/telegram\-notifier/config.toml
+configures
+.BR telegram\-notifierd (8).
+It is TOML. Unknown keys are an error rather than being ignored, so a typo is
+caught by
+.B telegram\-notifierd \-\-check
+instead of silently doing nothing.
+.PP
+The file is installed as a dpkg conffile, so local edits survive upgrades. It
+is owned
+.B root:telegram\-notifier
+mode
+.BR 0640 ,
+because it may contain the bot token.
+.SH "SECTION [service]"
+.TP
+.B socket_path
+Path of the control socket. Default
+.IR /run/telegram\-notifier/notifier.sock .
+.TP
+.B socket_group
+Group given ownership of the socket; its members may send notifications.
+Default
+.BR telegram\-notify .
+If the group does not exist the daemon logs a warning and keeps its own
+primary group, which effectively locks other users out.
+.TP
+.B socket_mode
+Socket permissions as an octal string. Default
+.BR "\(dq0660\(dq" .
+.TP
+.B state_dir
+Directory holding the
+.I queue
+and
+.I failed
+subdirectories. Default
+.IR /var/lib/telegram\-notifier .
+.TP
+.B log_level
+One of
+.BR error ", " warn ", " info ", " debug ", " trace .
+Default
+.BR info .
+.TP
+.B max_queue_size
+Reject new messages once this many are pending, so a runaway sender cannot
+fill the disk.
+.B 0
+disables the limit. Default
+.BR 10000 .
+.TP
+.B min_send_interval_ms
+Minimum delay between two Bot API calls. Default
+.BR 50 ,
+which stays below Telegram's overall limit of about 30 messages per second.
+.SH "SECTION [telegram]"
+.TP
+.B bot_token
+Token from @BotFather, inline. Mutually redundant with
+.BR bot_token_file .
+.TP
+.B bot_token_file
+File holding the token on a single line. Preferred: it keeps the secret in
+its own file with its own permissions. Default installation uses
+.IR /etc/telegram\-notifier/bot\-token .
+.TP
+.B api_base_url
+Bot API endpoint. Default
+.BR "\(dqhttps://api.telegram.org\(dq" .
+Point this at a local Bot API server if you run one.
+.TP
+.B timeout_seconds
+HTTP timeout per request. Default
+.BR 15 .
+.PP
+The
+.B TELEGRAM_NOTIFIER_BOT_TOKEN
+environment variable, if set and non-empty, overrides both token settings.
+This lets
+.BR systemd.exec (5)
+credentials supply the secret without it ever being written to disk.
+.SH "SECTION [retry]"
+.TP
+.B max_attempts
+Attempts before a message is moved to the
+.I failed
+directory.
+.B 0
+means retry forever. Default
+.BR 10 .
+.TP
+.B initial_backoff_seconds
+Delay before the second attempt. Default
+.BR 5 .
+.TP
+.B backoff_multiplier
+Factor applied to the delay after each failure. Must be at least
+.BR 1.0 .
+Default
+.BR 2.0 .
+.TP
+.B max_backoff_seconds
+Ceiling for the delay. Default
+.BR 900 .
+.PP
+A
+.B 429
+reply from Telegram overrides this schedule with the delay Telegram requests.
+.SH "SECTION [defaults]"
+Values inherited by every target that does not override them.
+.TP
+.B target
+Name of the target used when a client does not ask for one. It must match an
+existing
+.B [targets.*]
+section.
+.TP
+.B format
+.BR plain ", " markdown ", " markdownv2 " or " html .
+Default
+.BR plain ,
+which sends text verbatim and cannot be rejected for bad markup.
+.TP
+.B silent
+Deliver without a notification sound. Default
+.BR false .
+.TP
+.B disable_link_preview
+Suppress Telegram's link previews. Default
+.BR true .
+.SH "SECTION [targets.NAME]"
+One section per recipient. At least one target is required, and
+.B [defaults] target
+must name one of them.
+.TP
+.B chat_id
+Required. Numeric chat id, or
+.B @channelusername
+for a public channel. Group ids are negative; supergroup ids start with
+.BR \-100 .
+To find it, send a message to the bot and read
+.I result[].message.chat.id
+from
+.IR https://api.telegram.org/bot<TOKEN>/getUpdates .
+Note that bots have privacy mode enabled by default and therefore do not see
+ordinary group messages: in a group, either send
+.RB \(dq /start@yourbot \(dq
+or turn privacy off with
+.B /setprivacy
+in @BotFather, otherwise the update list stays empty. For a channel, make the
+bot an administrator and read
+.I result[].channel_post.chat.id
+instead.
+.TP
+.B message_thread_id
+Forum topic id, for supergroups with topics enabled.
+.TP
+.B prefix
+String prepended to every message sent to this target, useful for tagging the
+sending host or environment.
+.TP
+.BR bot_token ", " bot_token_file
+Per-target token, for sending as a different bot.
+.TP
+.BR format ", " silent ", " disable_link_preview
+Override the corresponding
+.B [defaults]
+value for this target only.
+.SH EXAMPLE
+.PP
+.RS
+.EX
+[service]
+socket_group = "telegram\-notify"
+
+[telegram]
+bot_token_file = "/etc/telegram\-notifier/bot\-token"
+
+[defaults]
+target = "ops"
+format = "plain"
+
+[targets.ops]
+chat_id = "\-1001234567890"
+message_thread_id = 42
+prefix = "[db01] "
+
+[targets.personal]
+chat_id = "123456789"
+silent = true
+.EE
+.RE
+.SH SEE ALSO
+.BR telegram\-notifierd (8),
+.BR telegram\-notify (1)

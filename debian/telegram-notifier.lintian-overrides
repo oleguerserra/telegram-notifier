@@ -1,0 +1,13 @@
+# The configuration file may hold the bot token inline, and the daemon reads
+# it as the telegram-notifier user, so it is deliberately root:telegram-notifier
+# 0640 rather than world-readable. postinst sets the group ownership.
+telegram-notifier: non-standard-file-perm 0640 != 0644 [etc/telegram-notifier/config.toml]
+
+# _FORTIFY_SOURCE is a glibc/C feature; these are Rust binaries, and the few C
+# objects they link (ring's assembly and support code) are not affected by it.
+telegram-notifier: hardening-no-fortify-functions [usr/bin/telegram-notifierd]
+telegram-notifier: hardening-no-fortify-functions [usr/bin/telegram-notify]
+
+# This package is not intended for the Debian archive, so there is no ITP bug
+# for the initial upload to close.
+telegram-notifier: initial-upload-closes-no-bugs

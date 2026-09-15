@@ -1,0 +1,35 @@
+Source: telegram-notifier
+Section: net
+Priority: optional
+Maintainer: Oleguer Serra <oleguer@serra.cat>
+Build-Depends:
+ debhelper-compat (= 13),
+ cargo,
+ rustc (>= 1.85),
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/oleguerserra/telegram-notifier
+
+Package: telegram-notifier
+Architecture: any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ adduser,
+ ca-certificates,
+Suggests:
+ python3,
+Description: relay notifications from local services to Telegram
+ telegram-notifier is a small daemon that accepts notification requests on a
+ Unix domain socket and forwards them to the Telegram Bot API.
+ .
+ Messages are written to a crash-safe on-disk queue before being acknowledged,
+ then delivered with exponential backoff, honouring Telegram's rate limits.
+ Messages that cannot be delivered are kept for inspection rather than dropped.
+ .
+ Recipients are configured as named targets, so different services can send to
+ different chats, groups or forum topics through the same daemon. Access is
+ controlled by membership of the telegram-notify group, which owns the socket.
+ .
+ The package also ships telegram-notify(1), a command line client suitable for
+ use from shell scripts, cron jobs and systemd OnFailure= handlers.

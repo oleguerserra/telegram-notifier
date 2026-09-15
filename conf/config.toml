@@ -1,0 +1,76 @@
+# Configuration for telegram-notifier.
+#
+# This file is installed as a dpkg conffile: local changes are preserved
+# across upgrades. See telegram-notifier.toml(5) for the full reference.
+#
+# After editing, validate and reload:
+#   telegram-notifierd --check
+#   systemctl restart telegram-notifier
+
+[service]
+# Unix socket clients connect to. Members of socket_group may send messages.
+socket_path = "/run/telegram-notifier/notifier.sock"
+socket_group = "telegram-notify"
+socket_mode = "0660"
+
+# Directory holding the persistent queue (queue/ and failed/ subdirectories).
+state_dir = "/var/lib/telegram-notifier"
+
+# Log verbosity: error, warn, info, debug or trace.
+log_level = "info"
+
+# Reject new messages once this many are pending. 0 disables the limit.
+max_queue_size = 10000
+
+# Minimum delay between two Telegram API calls, in milliseconds. Telegram
+# allows roughly 30 messages per second overall; 50 ms keeps a safe margin.
+min_send_interval_ms = 50
+
+[telegram]
+# Token issued by @BotFather. Prefer bot_token_file so that the secret lives
+# in its own 0640 root:telegram-notifier file instead of this one.
+# bot_token = "123456789:AAExampleTokenReplaceMe"
+bot_token_file = "/etc/telegram-notifier/bot-token"
+
+api_base_url = "https://api.telegram.org"
+timeout_seconds = 15
+
+[retry]
+# Attempts before a message is moved to <state_dir>/failed. 0 retries forever.
+max_attempts = 10
+initial_backoff_seconds = 5
+max_backoff_seconds = 900
+backoff_multiplier = 2.0
+
+[defaults]
+# Target used when a client does not name one.
+target = "default"
+
+# Body markup: plain, markdown, markdownv2 or html. "plain" is the safe
+# choice: text is sent verbatim, with no escaping rules for callers to get
+# wrong.
+format = "plain"
+
+silent = false
+disable_link_preview = true
+
+# Recipients. Add one section per destination; clients pick one with
+# `telegram-notify --target <name>`.
+#
+# To find a chat id: send a message to your bot, then open
+# https://api.telegram.org/bot<TOKEN>/getUpdates and read result[].chat.id.
+# Group ids are negative; supergroup ids start with -100.
+
+[targets.default]
+chat_id = "000000000"
+
+# [targets.ops]
+# chat_id = "-1001234567890"
+# message_thread_id = 42          # forum topic, for supergroups with topics
+# prefix = "[ops] "               # prepended to every message
+# format = "html"
+# silent = true
+
+# [targets.personal]
+# chat_id = "000000000"
+# bot_token_file = "/etc/telegram-notifier/personal-bot-token"
