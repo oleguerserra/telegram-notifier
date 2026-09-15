@@ -17,6 +17,25 @@ endif
 
 DESTDIR = debian/telegram-notifier
 
+# dpkg-buildpackage starts every run with `debian/rules clean`, which deletes
+# $(CARGO_TARGET_DIR). Compiling the dependency tree takes minutes, so it is
+# easy to launch a second build while the first is still going: the second
+# one's clean then removes the target directory underneath the running cargo,
+# which dies with a shower of unexplained ENOENT errors. Serialise build,
+# test and clean behind an advisory lock on this file -- it always exists and
+# is never written during a build, so it needs no cleanup of its own -- and
+# report the real problem instead. flock(1) is in util-linux, which is
+# Essential, so this needs no extra build dependency.
+define exclusively
+	@exec 9< $(CURDIR)/debian/rules; \
+	flock --nonblock 9 || { \
+	  echo "debian/rules: another build or clean is already running in" >&2; \
+	  echo "debian/rules: $(CURDIR) -- wait for it to finish, then retry." >&2; \
+	  exit 2; \
+	}; \
+	$(1)
+endef
+
 %:
 	dh $@
 
@@ -24,11 +43,11 @@ DESTDIR = debian/telegram-notifier
 override_dh_auto_configure:
 
 override_dh_auto_build:
-	cargo build $(CARGO_FLAGS)
+	$(call exclusively,cargo build $(CARGO_FLAGS))
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
-	cargo test $(CARGO_FLAGS)
+	$(call exclusively,cargo test $(CARGO_FLAGS))
 endif
 
 override_dh_auto_install:
@@ -45,7 +64,7 @@ override_dh_auto_install:
 	  $(DESTDIR)/usr/share/telegram-notifier/examples/send.py
 
 override_dh_auto_clean:
-	rm -rf target debian/cargo
+	$(call exclusively,rm -rf target debian/cargo)
 
 # The release profile strips already, so dh_dwz has no debug info to process.
 override_dh_dwz:

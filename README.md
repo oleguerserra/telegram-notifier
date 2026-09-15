@@ -242,6 +242,7 @@ ever lost silently. The errors you are most likely to meet:
 | `can't parse entities` | Markup does not match `format`; `plain` never fails this way. |
 | Client: permission denied on the socket | The sender is not in the `telegram-notify` group. |
 | Client: connection refused | The daemon is not running — check `systemctl status`. |
+| Build: `No such file or directory` all over `target/` | Two builds at once. `dpkg-buildpackage` starts with `debian/rules clean`, which removes the target directory; `debian/rules` now refuses the second one instead. |
 
 ## Building from source
 
