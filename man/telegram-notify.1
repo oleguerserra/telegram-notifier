@@ -75,6 +75,24 @@ and may also be set with
 .B \-\-timeout " " \fISECONDS\fR
 How long to wait for the daemon to answer. Default 10.
 .TP
+.B \-\-wait
+Do not exit until the message has actually been delivered. Without it the
+command returns as soon as the daemon has queued the message, which is not the
+same thing: a shutdown hook that does not wait will have the daemon and the
+network taken away underneath it, and the message is then only delivered on
+the next boot. Exits 1 if anything is still queued at the deadline.
+.TP
+.B \-\-wait\-timeout " " \fISECONDS\fR
+How long
+.B \-\-wait
+or
+.B \-\-flush
+may block. Default 15.
+.TP
+.B \-\-flush
+Send nothing; wait for the queue to drain and exit. Exits 1 if anything is
+still queued at the deadline.
+.TP
 .B \-\-ping
 Check that the daemon is reachable and exit.
 .TP
@@ -117,6 +135,14 @@ Send the tail of a log to the ops chat, as an urgent message:
 .EX
 journalctl \-u nginx \-n 20 | telegram\-notify \-t ops \-p high \\
     \-\-title "nginx restarted" \-\-stdin
+.EE
+.RE
+.PP
+Announce a shutdown, waiting for the message to really leave the machine:
+.PP
+.RS
+.EX
+telegram\-notify \-\-wait \-\-wait\-timeout 20 "$(hostname) is rebooting"
 .EE
 .RE
 .PP

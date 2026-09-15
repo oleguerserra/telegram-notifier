@@ -27,7 +27,10 @@ Group given ownership of the socket; its members may send notifications.
 Default
 .BR telegram\-notify .
 If the group does not exist the daemon logs a warning and keeps its own
-primary group, which effectively locks other users out.
+primary group, which effectively locks other users out. If the group exists
+but cannot be assigned, startup fails rather than leaving a socket nobody can
+reach. Set it to the empty string to skip the change entirely, which is
+mainly useful when running the daemon as yourself, outside systemd.
 .TP
 .B socket_mode
 Socket permissions as an octal string. Default

@@ -91,6 +91,14 @@ pub enum Request {
     Ping,
     /// Queue statistics and configured targets.
     Status,
+    /// Block until the queue drains, or until `timeout_ms` elapses. Used by
+    /// callers that must not proceed while a message is still undelivered —
+    /// a shutdown hook, most obviously, where the daemon and the network are
+    /// about to go away.
+    Flush {
+        #[serde(default = "default_flush_timeout_ms")]
+        timeout_ms: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +129,14 @@ fn default_version() -> u32 {
     PROTOCOL_VERSION
 }
 
+fn default_flush_timeout_ms() -> u64 {
+    15_000
+}
+
+/// Refuse to hold a connection open longer than this, whatever the client
+/// asks for, so a stuck client cannot pin a daemon task indefinitely.
+pub const MAX_FLUSH_TIMEOUT_MS: u64 = 300_000;
+
 /// The daemon's answer to a [`Request`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -131,6 +147,10 @@ pub enum Response {
     Pong,
     /// Queue statistics.
     Status(StatusReport),
+    /// Outcome of a [`Request::Flush`]. `pending` is what was still queued
+    /// when the daemon stopped waiting, so zero means everything was
+    /// delivered.
+    Flushed { pending: usize, timed_out: bool },
     /// The request was rejected. Nothing was queued.
     Error { message: String },
 }
@@ -207,6 +227,19 @@ mod tests {
             panic!("expected notify");
         };
         assert!(notify.validate().is_err());
+    }
+
+    #[test]
+    fn flush_defaults_its_timeout() {
+        let request: Request = serde_json::from_str(r#"{"action":"flush"}"#).unwrap();
+        let Request::Flush { timeout_ms } = request else {
+            panic!("expected a flush request");
+        };
+        assert_eq!(timeout_ms, default_flush_timeout_ms());
+
+        let explicit: Request =
+            serde_json::from_str(r#"{"action":"flush","timeout_ms":250}"#).unwrap();
+        assert!(matches!(explicit, Request::Flush { timeout_ms: 250 }));
     }
 
     #[test]

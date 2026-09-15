@@ -1,0 +1,58 @@
+#!/bin/sh
+# Announce this host booting and shutting down on Telegram.
+#
+# Driven by telegram-notify-lifecycle.service, which calls
+#   notify-lifecycle boot       from ExecStart
+#   notify-lifecycle shutdown   from ExecStop
+#
+# Configure it by dropping overrides in the unit, for example:
+#   systemctl edit telegram-notify-lifecycle
+#   [Service]
+#   Environment=TELEGRAM_TARGET=ops
+set -u
+
+event="${1:?usage: notify-lifecycle boot|shutdown}"
+target="${TELEGRAM_TARGET:-}"
+# How long shutdown may be delayed while the queue drains. The unit's
+# TimeoutStopSec must stay above this.
+flush_timeout="${TELEGRAM_FLUSH_TIMEOUT:-20}"
+
+host="$(hostname -f 2>/dev/null || hostname)"
+set -- --source "lifecycle" --priority high --quiet
+[ -n "$target" ] && set -- "$@" --target "$target"
+
+case "$event" in
+    boot)
+        body="kernel $(uname -r), up since $(uptime -s 2>/dev/null || date)"
+        # Nothing is waiting on this, so let the daemon deliver it in the
+        # background: a slow network must not hold up the rest of the boot.
+        telegram-notify "$@" --title "$host booted" "$body" || true
+        ;;
+
+    shutdown)
+        # systemd gives no direct "why", so read the job it is running. This
+        # is best effort: an unrecognised shape falls back to neutral wording.
+        what="is shutting down"
+        jobs="$(systemctl list-jobs --no-legend 2>/dev/null || true)"
+        case "$jobs" in
+            *reboot.target*)   what="is rebooting" ;;
+            *poweroff.target*) what="is powering off" ;;
+            *halt.target*)     what="is halting" ;;
+        esac
+
+        body="was up $(uptime -p 2>/dev/null | sed 's/^up //' || echo 'an unknown time')"
+
+        # The daemon and the network are about to go away, so unlike at boot
+        # this must not return until the message is really gone: --wait blocks
+        # until the queue drains. A notification that could not be delivered is
+        # still no reason to fail the shutdown, so the status only gets logged.
+        telegram-notify "$@" --wait --wait-timeout "$flush_timeout" \
+            --title "$host $what" "$body" \
+            || echo "notify-lifecycle: shutdown notice not delivered" >&2
+        ;;
+
+    *)
+        echo "notify-lifecycle: unknown event '$event'" >&2
+        exit 2
+        ;;
+esac

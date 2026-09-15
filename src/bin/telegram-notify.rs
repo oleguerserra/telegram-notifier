@@ -73,9 +73,26 @@ struct Args {
     #[arg(long, conflicts_with_all = ["status", "text"])]
     ping: bool,
 
+    /// After sending, wait until the queue is empty before exiting. Use it
+    /// where the machine is about to lose the daemon or the network, such as
+    /// a shutdown hook: without it the command returns as soon as the message
+    /// is queued, which is not the same as delivered. Exits 1 if messages are
+    /// still queued at the deadline.
+    #[arg(long)]
+    wait: bool,
+
+    /// Seconds --wait or --flush may block for.
+    #[arg(long, value_name = "SECONDS", default_value_t = 15)]
+    wait_timeout: u64,
+
     /// Print the daemon's queue statistics as JSON and exit.
     #[arg(long, conflicts_with_all = ["ping", "text"])]
     status: bool,
+
+    /// Send nothing; just wait for the queue to drain and exit. Exits 1 if
+    /// messages are still queued at the deadline.
+    #[arg(long, conflicts_with_all = ["ping", "status", "text", "wait"])]
+    flush: bool,
 
     /// Suppress the message id printed on success.
     #[arg(short, long)]
@@ -96,6 +113,10 @@ fn main() -> ExitCode {
 fn run(args: &Args) -> anyhow::Result<ExitCode> {
     let timeout = Duration::from_secs(args.timeout.max(1));
 
+    if args.flush {
+        return flush(args);
+    }
+
     let request = if args.ping {
         Request::Ping
     } else if args.status {
@@ -106,7 +127,7 @@ fn run(args: &Args) -> anyhow::Result<ExitCode> {
 
     let response = send_request(&args.socket, &request, timeout)?;
 
-    Ok(match response {
+    let mut code = match response {
         Response::Queued { id } => {
             if !args.quiet {
                 println!("{id}");
@@ -123,11 +144,48 @@ fn run(args: &Args) -> anyhow::Result<ExitCode> {
             println!("{}", serde_json::to_string_pretty(&report)?);
             ExitCode::SUCCESS
         }
+        Response::Flushed { .. } => unreachable!("no flush was requested"),
         Response::Error { message } => {
             eprintln!("telegram-notify: {message}");
             ExitCode::from(1)
         }
-    })
+    };
+
+    // Draining is a separate round trip so that a failure to deliver is
+    // reported distinctly from a failure to queue.
+    if args.wait && code == ExitCode::SUCCESS {
+        code = flush(args)?;
+    }
+    Ok(code)
+}
+
+/// Ask the daemon to drain its queue, and report whether it managed to.
+fn flush(args: &Args) -> anyhow::Result<ExitCode> {
+    let timeout_ms = args.wait_timeout.saturating_mul(1000);
+    // Outlive the daemon's own deadline, so the read never trips first.
+    let socket_timeout = Duration::from_secs(args.wait_timeout.saturating_add(5).max(2));
+    let request = Request::Flush { timeout_ms };
+
+    Ok(
+        match send_request(&args.socket, &request, socket_timeout)? {
+            Response::Flushed { pending: 0, .. } => ExitCode::SUCCESS,
+            Response::Flushed { pending, .. } => {
+                eprintln!(
+                    "telegram-notify: {pending} message(s) still queued after {}s",
+                    args.wait_timeout
+                );
+                ExitCode::from(1)
+            }
+            Response::Error { message } => {
+                eprintln!("telegram-notify: {message}");
+                ExitCode::from(1)
+            }
+            other => {
+                eprintln!("telegram-notify: unexpected reply to flush: {other:?}");
+                ExitCode::from(2)
+            }
+        },
+    )
 }
 
 fn build_notify(args: &Args) -> anyhow::Result<NotifyRequest> {

@@ -114,7 +114,8 @@ async fn start_daemon(fail_first: usize) -> Harness {
         r#"
 [service]
 socket_path = "{socket}"
-socket_group = "no-such-group-for-tests"
+# Empty: never chown, so the test does not depend on host groups.
+socket_group = ""
 state_dir = "{state}"
 min_send_interval_ms = 0
 
@@ -279,6 +280,7 @@ async fn queued_messages_survive_a_restart() {
         r#"
 [service]
 socket_path = "{socket}"
+socket_group = ""
 state_dir = "{state}"
 
 [telegram]
@@ -342,6 +344,61 @@ async fn long_messages_are_split_into_several_api_calls() {
         })
         .sum();
     assert_eq!(total, 5000, "no characters are lost in the split");
+
+    h.shutdown.notify_waiters();
+}
+
+#[tokio::test]
+async fn flush_returns_once_the_queue_has_drained() {
+    let h = start_daemon(0).await;
+
+    send(&h.socket, r#"{"action":"notify","text":"before shutdown"}"#).await;
+    // A shutdown hook cannot proceed until this comes back.
+    let response = send(&h.socket, r#"{"action":"flush","timeout_ms":10000}"#).await;
+
+    assert!(response.contains("\"flushed\""), "got {response}");
+    assert!(response.contains("\"pending\":0"), "got {response}");
+    assert!(response.contains("\"timed_out\":false"), "got {response}");
+    assert!(h.api.calls() >= 1, "the message really went out");
+    assert!(h.queue.load_all().unwrap().is_empty());
+
+    h.shutdown.notify_waiters();
+}
+
+#[tokio::test]
+async fn flush_reports_what_it_could_not_deliver() {
+    // fail_first is effectively unlimited here: every attempt 500s, so the
+    // message stays queued and flush must give up rather than hang.
+    let h = start_daemon(usize::MAX).await;
+
+    send(&h.socket, r#"{"action":"notify","text":"doomed"}"#).await;
+    let started = std::time::Instant::now();
+    let response = send(&h.socket, r#"{"action":"flush","timeout_ms":300}"#).await;
+
+    assert!(response.contains("\"timed_out\":true"), "got {response}");
+    assert!(response.contains("\"pending\":1"), "got {response}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "flush must honour its deadline, took {:?}",
+        started.elapsed()
+    );
+
+    h.shutdown.notify_waiters();
+}
+
+#[tokio::test]
+async fn flush_on_an_empty_queue_returns_immediately() {
+    let h = start_daemon(0).await;
+
+    let started = std::time::Instant::now();
+    let response = send(&h.socket, r#"{"action":"flush","timeout_ms":30000}"#).await;
+
+    assert!(response.contains("\"pending\":0"), "got {response}");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "nothing to wait for, took {:?}",
+        started.elapsed()
+    );
 
     h.shutdown.notify_waiters();
 }

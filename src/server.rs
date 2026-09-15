@@ -16,7 +16,7 @@ use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
-use crate::protocol::{Request, Response, StatusReport, MAX_REQUEST_BYTES};
+use crate::protocol::{Request, Response, StatusReport, MAX_FLUSH_TIMEOUT_MS, MAX_REQUEST_BYTES};
 use crate::queue::{Queue, QueueEntry};
 use crate::worker::WorkerHandle;
 
@@ -54,8 +54,19 @@ pub fn bind(config: &Config) -> Result<UnixListener> {
 }
 
 /// Set the socket's group and mode. A missing group is a warning rather than
-/// a fatal error, so a misconfigured group cannot take the service down.
+/// a fatal error, so a misconfigured group cannot take the service down. A
+/// group that exists but cannot be assigned *is* fatal: the socket would keep
+/// the daemon's own group and every intended client would be locked out, which
+/// is worse hidden than loud.
 fn apply_socket_permissions(path: &Path, group: &str, mode: u32) -> Result<()> {
+    if group.trim().is_empty() {
+        // Explicitly opted out: the socket keeps whatever group it was created
+        // with. Useful when running the daemon as yourself, outside systemd.
+        debug!("socket_group is empty, leaving the socket's group alone");
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+            .with_context(|| format!("setting mode {mode:o} on {}", path.display()))?;
+        return Ok(());
+    }
     match Group::from_name(group) {
         Ok(Some(entry)) => {
             chown(path, None, Some(Gid::from_raw(entry.gid.as_raw())))
@@ -175,6 +186,27 @@ async fn dispatch(request: Request, ctx: &ConnectionContext) -> Response {
             targets: ctx.config.targets.keys().cloned().collect(),
             default_target: ctx.config.defaults.target.clone(),
         }),
+        Request::Flush { timeout_ms } => {
+            let deadline = std::time::Instant::now()
+                + std::time::Duration::from_millis(timeout_ms.min(MAX_FLUSH_TIMEOUT_MS));
+            loop {
+                let pending = ctx.worker.pending();
+                if pending == 0 {
+                    return Response::Flushed {
+                        pending: 0,
+                        timed_out: false,
+                    };
+                }
+                if std::time::Instant::now() >= deadline {
+                    debug!(pending, "flush timed out with messages still queued");
+                    return Response::Flushed {
+                        pending,
+                        timed_out: true,
+                    };
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }
         Request::Notify(notify) => {
             if let Err(message) = notify.validate() {
                 return Response::Error { message };
@@ -226,7 +258,7 @@ mod tests {
             r#"
 [service]
 socket_path = "{}"
-socket_group = "this-group-does-not-exist"
+socket_group = ""
 state_dir = "{}"
 
 [telegram]

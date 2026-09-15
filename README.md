@@ -35,7 +35,7 @@ API with retries and rate limiting.
 | `/run/telegram-notifier/notifier.sock` | Control socket. |
 | `/var/lib/telegram-notifier/queue` | Pending messages, one JSON file each. |
 | `/var/lib/telegram-notifier/failed` | Abandoned messages, kept for inspection. |
-| `/usr/share/telegram-notifier/examples/` | systemd `OnFailure=` handler, shell helpers, a Python client. |
+| `/usr/share/telegram-notifier/examples/` | Boot/shutdown unit, systemd `OnFailure=` handler, shell helpers, a Python client. |
 
 ## Installing
 
@@ -145,7 +145,9 @@ lists `telegram-notify`.
 telegram-notify "Backup finished"
 telegram-notify --target ops --priority high "Disk almost full on db01"
 journalctl -u nginx -n 20 | telegram-notify --title "nginx" --stdin
+telegram-notify --wait "Rebooting now"   # block until really delivered
 telegram-notify --status          # queue depth and configured targets
+telegram-notify --flush           # wait for the queue to drain
 telegram-notify --ping            # is the daemon alive?
 ```
 
@@ -164,6 +166,53 @@ OnFailure=telegram-notify-failure@%n.service
 
 Copy `examples/telegram-notify-failure@.service` to `/etc/systemd/system/`
 first. Full details in `telegram-notify(1)`.
+
+### Boot and shutdown notices
+
+```sh
+sudo cp /usr/share/telegram-notifier/examples/telegram-notify-lifecycle.service \
+        /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now telegram-notify-lifecycle
+```
+
+Enabling it sends the boot message straight away, so it doubles as a test.
+
+One unit covers both events: `ExecStart` announces the boot and `ExecStop`
+announces the shutdown, with `RemainAfterExit=yes` keeping it active in
+between. The ordering falls out of a single line:
+
+```ini
+After=telegram-notifier.service network-online.target
+```
+
+systemd stops units in the reverse of the order it started them, so being
+*after* the daemon and the network at boot means the shutdown notice is sent
+while both are still up.
+
+The shutdown hook uses `telegram-notify --wait`, which does not return until
+the message has actually reached Telegram. This matters more than it looks:
+without it the command returns the moment the message is queued, the daemon
+and the network are torn down a fraction of a second later, and the "shutting
+down" message arrives on the *next* boot. The hook delays shutdown by however
+long delivery takes, capped by `TELEGRAM_FLUSH_TIMEOUT` (20 s by default).
+
+It distinguishes reboot from poweroff on a best-effort basis by reading
+systemd's pending job, and falls back to neutral wording when it cannot tell.
+Nothing can cover a hard power cut or a kernel panic, of course — a missing
+shutdown notice followed by a boot notice is itself the signal that something
+went wrong.
+
+To send these to a named target:
+
+```sh
+sudo systemctl edit telegram-notify-lifecycle
+```
+
+```ini
+[Service]
+Environment=TELEGRAM_TARGET=ops
+```
 
 ### Named targets
 
@@ -202,12 +251,14 @@ $ printf '{"action":"notify","text":"hello","target":"ops"}\n' \
 ```
 
 Requests: `{"action":"notify", ...}`, `{"action":"ping"}`,
-`{"action":"status"}`. A `notify` request takes `text` plus optional `title`,
+`{"action":"status"}`, `{"action":"flush","timeout_ms":15000}`. A `notify` request takes `text` plus optional `title`,
 `target`, `format`, `priority`, `silent` and `source`. Responses carry a
 `status` field of `queued`, `pong`, `status` or `error`.
 
 `queued` means the message is on disk and will be retried until it is
 delivered or abandoned — it does not mean Telegram has already accepted it.
+Use `flush` when you need to know it has: it blocks until the queue is empty
+or the timeout expires, and reports how much was left.
 
 ## Delivery behaviour
 

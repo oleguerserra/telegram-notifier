@@ -10,6 +10,8 @@
 [service]
 # Unix socket clients connect to. Members of socket_group may send messages.
 socket_path = "/run/telegram-notifier/notifier.sock"
+# Members of this group may send messages. Set it to "" to leave the socket's
+# group alone, which is only useful when running the daemon as yourself.
 socket_group = "telegram-notify"
 socket_mode = "0660"
 

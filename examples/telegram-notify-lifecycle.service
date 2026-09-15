@@ -1,0 +1,42 @@
+# Announce this host booting and shutting down on Telegram.
+#
+# Install and enable:
+#   sudo cp /usr/share/telegram-notifier/examples/telegram-notify-lifecycle.service \
+#           /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now telegram-notify-lifecycle
+#
+# Enabling it sends the "booted" message straight away, which doubles as a
+# test. To send to a named target, run `systemctl edit
+# telegram-notify-lifecycle` and add:
+#   [Service]
+#   Environment=TELEGRAM_TARGET=ops
+
+[Unit]
+Description=Announce boot and shutdown on Telegram
+Documentation=man:telegram-notify(1)
+
+# Both orderings come from this one pair of lines. systemd stops units in the
+# reverse of the order it started them, so being After= these means the
+# shutdown notice is sent while the daemon and the network are still up.
+After=telegram-notifier.service network-online.target
+Wants=network-online.target
+
+# Without the daemon there is nothing to send through.
+Requires=telegram-notifier.service
+
+[Service]
+Type=oneshot
+# Stay "active" after ExecStart so that ExecStop runs at shutdown.
+RemainAfterExit=yes
+ExecStart=/usr/share/telegram-notifier/examples/notify-lifecycle boot
+ExecStop=/usr/share/telegram-notifier/examples/notify-lifecycle shutdown
+
+# ExecStop blocks until the message is delivered, for up to
+# TELEGRAM_FLUSH_TIMEOUT seconds. Keep this comfortably above that, or systemd
+# will kill the hook before it can finish.
+Environment=TELEGRAM_FLUSH_TIMEOUT=20
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

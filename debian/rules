@@ -62,6 +62,10 @@ override_dh_auto_install:
 	  $(DESTDIR)/usr/share/telegram-notifier/examples/logging-hook.sh
 	install -D -m 0755 examples/send.py \
 	  $(DESTDIR)/usr/share/telegram-notifier/examples/send.py
+	install -D -m 0755 examples/notify-lifecycle \
+	  $(DESTDIR)/usr/share/telegram-notifier/examples/notify-lifecycle
+	install -D -m 0644 examples/telegram-notify-lifecycle.service \
+	  $(DESTDIR)/usr/share/telegram-notifier/examples/telegram-notify-lifecycle.service
 
 override_dh_auto_clean:
 	$(call exclusively,rm -rf target debian/cargo)
@@ -69,10 +73,14 @@ override_dh_auto_clean:
 # The release profile strips already, so dh_dwz has no debug info to process.
 override_dh_dwz:
 
-# The service is useless until a bot token and a chat id are configured, so it
-# is neither enabled nor started automatically; postinst says what to do next.
+# A fresh install has no token and no chat id, so the unit must not be enabled
+# behind the operator's back; postinst says what to do next. --no-start is
+# deliberately absent: deb-systemd-invoke will not start a disabled unit, so a
+# first install still stays quiet, while an upgrade restarts a unit the
+# operator did enable -- otherwise it would keep running the old binary with
+# no hint that it had gone stale.
 override_dh_installsystemd:
-	dh_installsystemd --no-enable --no-start
+	dh_installsystemd --no-enable
 
 # dh_fixperms would make the configuration world-readable, and it may hold the
 # bot token inline.
