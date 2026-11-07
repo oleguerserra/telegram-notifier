@@ -329,6 +329,46 @@ mkdir -p .cargo
 cargo vendor vendor > .cargo/config.toml
 ```
 
+### Cross-building for arm64
+
+`debian/rules` cross-builds when the host architecture differs from the build
+one, so a Raspberry Pi package can be made on an amd64 machine:
+
+```sh
+dpkg-buildpackage -a arm64 -us -uc -b -d
+```
+
+It passes `--target aarch64-unknown-linux-gnu` to cargo, uses
+`aarch64-linux-gnu-gcc` as the linker and for *ring*'s C sources, and skips
+`cargo test`, whose binaries could not run on the build machine. The TLS
+stack is rustls, so no cross-compiled OpenSSL is needed. Only arm64 is wired
+up; any other `-a` stops with an error.
+
+Build on the oldest Debian release the package must run on: the binaries link
+against the build system's glibc and will not start on an older one. For a
+Raspberry Pi OS based on Debian 12 that means a bookworm container. Bookworm's
+own rustc is too old for this crate (it needs 1.85), so install the toolchain
+with rustup, and pass `-d` because the `cargo` and `rustc` build dependencies
+are then not satisfied by packages:
+
+```sh
+docker run --rm -v "$PWD":/src:ro -v "$PWD/..":/out debian:bookworm bash -euxc '
+  dpkg --add-architecture arm64
+  apt-get update
+  apt-get install -y --no-install-recommends build-essential crossbuild-essential-arm64 \
+      debhelper fakeroot curl ca-certificates libc6:arm64 libgcc-s1:arm64
+  curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
+      --default-toolchain stable --target aarch64-unknown-linux-gnu
+  export PATH=/root/.cargo/bin:$PATH
+  cp -a /src /build && cd /build
+  dpkg-buildpackage -a arm64 -us -uc -b -d
+  cp ../telegram-notifier_*_arm64.* /out/'
+```
+
+The package lands next to the source tree as
+`telegram-notifier_<version>_arm64.deb`. Copy it to the Pi and install it with
+`sudo apt install ./telegram-notifier_<version>_arm64.deb`.
+
 ## Security notes
 
 * The socket's group is the only access control. Anyone in
