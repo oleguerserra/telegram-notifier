@@ -1,3 +1,10 @@
+telegram-notifier (0.1.0-2) unstable; urgency=medium
+
+  * debian/rules: support cross-building (dpkg-buildpackage -a arm64), for
+    the Raspberry Pi that runs the UniFi controller.
+
+ -- Oleguer Serra <oleguer@serra.cat>  Sat, 07 Nov 2026 22:00:00 +0100
+
 telegram-notifier (0.1.0-1) unstable; urgency=medium
 
   * Initial release.

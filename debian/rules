@@ -8,6 +8,26 @@ export CARGO_TARGET_DIR = $(CURDIR)/target
 
 CARGO_FLAGS = --release --locked
 
+# Cross-building, e.g. `dpkg-buildpackage -a arm64` for a Raspberry Pi: hand
+# cargo the Rust triple, point it at the matching cross linker (ring has C
+# sources), and pick the binaries up from the per-target output directory.
+# The test binaries would be for the host architecture, so tests are skipped.
+include /usr/share/dpkg/architecture.mk
+ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+CROSS = yes
+ifeq ($(DEB_HOST_ARCH),arm64)
+RUST_TARGET = aarch64-unknown-linux-gnu
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = aarch64-linux-gnu-gcc
+export CC_aarch64_unknown_linux_gnu = aarch64-linux-gnu-gcc
+else
+$(error cross-building for $(DEB_HOST_ARCH) is not wired up in debian/rules)
+endif
+CARGO_FLAGS += --target $(RUST_TARGET)
+RELEASE_DIR = target/$(RUST_TARGET)/release
+else
+RELEASE_DIR = target/release
+endif
+
 # A vendored registry (see README, "Building the Debian package") lets the
 # build run with no network access, as an official Debian build requires.
 ifneq (,$(wildcard $(CURDIR)/vendor))
@@ -46,13 +66,13 @@ override_dh_auto_build:
 	$(call exclusively,cargo build $(CARGO_FLAGS))
 
 override_dh_auto_test:
-ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS))$(CROSS))
 	$(call exclusively,cargo test $(CARGO_FLAGS))
 endif
 
 override_dh_auto_install:
-	install -D -m 0755 target/release/telegram-notifierd $(DESTDIR)/usr/bin/telegram-notifierd
-	install -D -m 0755 target/release/telegram-notify    $(DESTDIR)/usr/bin/telegram-notify
+	install -D -m 0755 $(RELEASE_DIR)/telegram-notifierd $(DESTDIR)/usr/bin/telegram-notifierd
+	install -D -m 0755 $(RELEASE_DIR)/telegram-notify    $(DESTDIR)/usr/bin/telegram-notify
 	install -D -m 0640 conf/config.toml                   $(DESTDIR)/etc/telegram-notifier/config.toml
 	install -D -m 0755 examples/notify-on-failure \
 	  $(DESTDIR)/usr/share/telegram-notifier/examples/notify-on-failure
